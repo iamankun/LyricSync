@@ -1,14 +1,9 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { useState, useCallback, useEffect } from 'react';
 import { LyricLine, SyncIndex } from './types';
 
 export const useSyncLogic = (
   initialData: LyricLine[],
-  currentTime: number,
+  getCurrentTime: () => number,
   isPlaying: boolean
 ) => {
   const [syncData, setSyncData] = useState<LyricLine[]>(initialData);
@@ -41,6 +36,7 @@ export const useSyncLogic = (
 
   const handleNextLine = useCallback(() => {
     if (!isPlaying) return;
+    const time = getCurrentTime();
 
     setSyncData((prev) => {
       const newData = [...prev];
@@ -55,11 +51,11 @@ export const useSyncLogic = (
       const lastWordIdx = currentWords.length - 1;
       if (currentWords[lastWordIdx] && currentWords[lastWordIdx].endTime === null) {
         const lastWord = { ...currentWords[lastWordIdx] };
-        lastWord.endTime = currentTime;
+        lastWord.endTime = time;
         currentWords[lastWordIdx] = lastWord;
       }
 
-      currentLine.endTime = currentTime;
+      currentLine.endTime = time;
       currentLine.words = currentWords;
       newData[lineIndex] = currentLine;
 
@@ -73,10 +69,11 @@ export const useSyncLogic = (
 
       return newData;
     });
-  }, [currentIndex, currentTime, isPlaying]);
+  }, [currentIndex, isPlaying, getCurrentTime]);
 
   const handleSyncAction = useCallback(() => {
     if (!isPlaying) return;
+    const time = getCurrentTime();
 
     setSyncData((prev) => {
       const newData = [...prev];
@@ -89,40 +86,52 @@ export const useSyncLogic = (
       
       // 1. Ghi nhận cho từ hiện tại
       const currentWord = { ...currentWords[wordIndex] };
-      currentWord.startTime = currentTime;
+      currentWord.startTime = time;
       currentWords[wordIndex] = currentWord;
 
       // 2. Chốt endTime cho từ trước đó (nếu có trong cùng dòng)
       if (wordIndex > 0) {
         const prevWord = { ...currentWords[wordIndex - 1] };
-        prevWord.endTime = currentTime;
+        prevWord.endTime = time;
         currentWords[wordIndex - 1] = prevWord;
       }
 
       // 3. Nếu là từ đầu tiên của dòng, gán startTime cho dòng
       if (wordIndex === 0) {
-        currentLine.startTime = currentTime;
+        currentLine.startTime = time;
       }
-
-      currentLine.words = currentWords;
-      newData[lineIndex] = currentLine;
 
       // Chuyển sang từ tiếp theo
       const nextWordIndex = wordIndex + 1;
       if (nextWordIndex < currentWords.length) {
+        currentLine.words = currentWords;
+        newData[lineIndex] = currentLine;
         setCurrentIndex({ lineIndex, wordIndex: nextWordIndex });
       } else {
-        // TỰ ĐỘNG XUỐNG DÒNG: Đã hết từ, tự động gọi logic chuyển dòng
-        setTimeout(() => handleNextLine(), 0);
+        // TỰ ĐỘNG XUỐNG DÒNG NGAY LẬP TỨC TRONG CÙNG 1 CHU KỲ STATE
+        // Không dùng setTimeout nữa để loại bỏ độ trễ
+        const lastIdx = currentWords.length - 1;
+        if (currentWords[lastIdx]) {
+          currentWords[lastIdx].endTime = time;
+        }
+        currentLine.endTime = time;
+        currentLine.words = currentWords;
+        newData[lineIndex] = currentLine;
+
+        const nextLineIndex = lineIndex + 1;
+        if (nextLineIndex < newData.length) {
+          setCurrentIndex({ lineIndex: nextLineIndex, wordIndex: 0 });
+        } else {
+          setCurrentIndex({ lineIndex: newData.length, wordIndex: 0 });
+        }
       }
 
       return newData;
     });
-  }, [currentIndex, currentTime, isPlaying, handleNextLine]);
+  }, [currentIndex, isPlaying, getCurrentTime]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Tránh trigger khi đang gõ trong input/textarea
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       if (e.code === 'Space') {
@@ -171,12 +180,10 @@ export const useSyncLogic = (
       word.endTime = null;
       words[prevWordIndex] = word;
 
-      // Nếu là từ đầu tiên, xóa startTime của dòng
       if (prevWordIndex === 0) {
         line.startTime = null;
       }
       
-      // Xóa endTime của dòng nếu lùi từ dòng sau về
       if (currentIndex.lineIndex > prevLineIndex) {
         line.endTime = null;
       }
@@ -188,7 +195,6 @@ export const useSyncLogic = (
 
     setCurrentIndex({ lineIndex: prevLineIndex, wordIndex: prevWordIndex });
     
-    // Trả về thời gian của từ trước đó để seek nhạc (nếu có)
     const targetLine = syncData[prevLineIndex];
     if (prevWordIndex > 0) {
       return targetLine.words[prevWordIndex - 1].startTime;
@@ -213,7 +219,6 @@ export const useSyncLogic = (
     });
     setCurrentIndex({ lineIndex: lineIdx, wordIndex: 0 });
     
-    // Trả về thời gian của dòng trước đó để seek nhạc
     if (lineIdx > 0) {
       const prevLine = syncData[lineIdx - 1];
       return prevLine.startTime || 0;
@@ -233,6 +238,7 @@ export const useSyncLogic = (
     handleNextLine,
     syncToWordIndex: useCallback((targetWordIndex: number) => {
       if (!isPlaying) return;
+      const time = getCurrentTime();
 
       setSyncData((prev) => {
         const newData = [...prev];
@@ -243,20 +249,18 @@ export const useSyncLogic = (
         const currentLine = { ...newData[lineIndex] };
         const currentWords = [...currentLine.words];
         
-        // Đồng bộ tất cả các từ từ wordIndex hiện tại đến targetWordIndex
         for (let i = wordIndex; i < targetWordIndex; i++) {
           const word = { ...currentWords[i] };
-          word.startTime = currentTime;
+          word.startTime = time;
           
-          // Chốt endTime cho từ trước đó
           if (i > 0) {
             const prevWord = { ...currentWords[i - 1] };
-            prevWord.endTime = currentTime;
+            prevWord.endTime = time;
             currentWords[i - 1] = prevWord;
           }
           
           if (i === 0) {
-            currentLine.startTime = currentTime;
+            currentLine.startTime = time;
           }
           
           currentWords[i] = word;
@@ -268,12 +272,11 @@ export const useSyncLogic = (
         if (targetWordIndex < currentWords.length) {
           setCurrentIndex({ lineIndex, wordIndex: targetWordIndex });
         } else {
-          // Nếu đã đồng bộ hết dòng, chốt endTime cho từ cuối và chuyển dòng
           const lastIdx = currentWords.length - 1;
           if (currentWords[lastIdx]) {
-            currentWords[lastIdx].endTime = currentTime;
+            currentWords[lastIdx].endTime = time;
           }
-          currentLine.endTime = currentTime;
+          currentLine.endTime = time;
           newData[lineIndex] = currentLine;
           
           const nextLineIndex = lineIndex + 1;
@@ -282,6 +285,7 @@ export const useSyncLogic = (
 
         return newData;
       });
-    }, [currentIndex, currentTime, isPlaying])
+    }, [currentIndex, isPlaying, getCurrentTime])
   };
 };
+

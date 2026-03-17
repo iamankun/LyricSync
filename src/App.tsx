@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { LyricLine, Word } from './types';
 import { useSyncLogic } from './useSyncLogic';
 import { exportToJson, exportToSrt, parseSrt } from './utils';
+import { SyncLine } from './SyncLine';
 
 type TabType = 'audio' | 'lyrics' | 'sync' | 'export';
 
@@ -35,17 +36,24 @@ export default function App() {
   const syncContainerRef = useRef<HTMLDivElement>(null);
 
   const [initialData, setInitialData] = useState<LyricLine[]>([]);
+  const getCurrentTime = useCallback(() => {
+    if (wavesurfer.current) {
+      return wavesurfer.current.getCurrentTime();
+    }
+    return 0;
+  }, []);
+
   const { 
     syncData, setSyncData, currentIndex, setCurrentIndex, 
     updateLineText, undoSync, resetToLine, handleSyncAction, handleNextLine, syncToWordIndex
-  } = useSyncLogic(initialData, currentTime, isPlaying);
+  } = useSyncLogic(initialData, getCurrentTime, isPlaying);
 
   // Tự động cuộn dòng đang đồng bộ vào giữa màn hình
   useEffect(() => {
     if (activeTab === 'sync' && syncContainerRef.current) {
       const activeLine = syncContainerRef.current.querySelector(`[data-line-index="${currentIndex.lineIndex}"]`);
       if (activeLine) {
-        activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        activeLine.scrollIntoView({ behavior: 'auto', block: 'center' });
       }
     }
   }, [currentIndex.lineIndex, activeTab]);
@@ -185,9 +193,9 @@ export default function App() {
     if (wavesurfer.current && isReady) wavesurfer.current.playPause();
   };
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
     if (wavesurfer.current && isReady) wavesurfer.current.setTime(time);
-  };
+  }, [isReady]);
 
   const resetSync = () => {
     if (confirm('Bạn có chắc chắn muốn xóa toàn bộ tiến trình đồng bộ?')) {
@@ -202,17 +210,17 @@ export default function App() {
     }
   };
 
-  const startEditing = (idx: number, text: string) => {
+  const startEditing = useCallback((idx: number, text: string) => {
     setEditingLineIdx(idx);
     setEditValue(text);
-  };
+  }, []);
 
-  const saveEdit = () => {
+  const saveEdit = useCallback(() => {
     if (editingLineIdx !== null) {
       updateLineText(editingLineIdx, editValue);
       setEditingLineIdx(null);
     }
-  };
+  }, [editingLineIdx, editValue, updateLineText]);
 
   const handleUndo = () => {
     const seekTime = undoSync();
@@ -221,12 +229,12 @@ export default function App() {
     }
   };
 
-  const handleResetToLine = (idx: number) => {
+  const handleResetToLine = useCallback((idx: number) => {
     if (idx <= currentIndex.lineIndex) {
       const seekTime = resetToLine(idx);
       handleSeek(seekTime);
     }
-  };
+  }, [currentIndex.lineIndex, resetToLine, handleSeek]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -403,80 +411,25 @@ export default function App() {
                   <div ref={syncContainerRef} className="space-y-24 pb-60">
                     {syncData.length > 0 ? syncData.map((line, lIdx) => {
                       const showSection = lIdx === 0 || syncData[lIdx - 1].section !== line.section;
+                      const isCurrentLine = currentIndex.lineIndex === lIdx;
                       return (
-                        <div 
-                          key={lIdx} 
-                          data-line-index={lIdx}
-                          className={`group relative transition-all duration-500 ${currentIndex.lineIndex === lIdx ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
-                        >
-                          {showSection && line.section && (
-                            <div className="mb-6 flex items-center gap-3">
-                              <div className="h-px bg-slate-800 flex-1" />
-                              <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] bg-slate-900 px-4 py-1.5 rounded-full border border-slate-800">
-                                {line.section}
-                              </span>
-                              <div className="h-px bg-slate-800 flex-1" />
-                            </div>
-                          )}
-                          {editingLineIdx === lIdx ? (
-                          <div className="flex items-center gap-2">
-                            <input 
-                              autoFocus value={editValue} onChange={(e) => setEditValue(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
-                              className="flex-1 bg-slate-950 border border-indigo-500/50 rounded-xl px-4 py-2 text-xl font-medium text-white outline-none"
-                            />
-                            <button onClick={saveEdit} className="p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-500"><Check size={20} /></button>
-                          </div>
-                        ) : (
-                          <div className="flex items-start gap-4">
-                            <div 
-                              className="flex-1 flex flex-wrap gap-x-2 gap-y-4 cursor-pointer"
-                              onClick={() => handleResetToLine(lIdx)}
-                            >
-                              {line.words.map((word, wIdx) => {
-                                const isCurrent = currentIndex.lineIndex === lIdx && currentIndex.wordIndex === wIdx;
-                                const isSynced = word.startTime !== null;
-                                return (
-                                  <motion.span 
-                                    key={wIdx} whileHover={{ scale: 1.05 }}
-                                    onClick={() => word.startTime !== null && handleSeek(word.startTime)}
-                                    className={`px-3 py-1.5 rounded-xl text-3xl font-bold transition-all cursor-pointer ${isCurrent ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-500/40 ring-8 ring-indigo-500/10' : ''} ${isSynced && !isCurrent ? 'text-indigo-400 bg-indigo-500/5' : ''} ${!isSynced && !isCurrent ? 'text-slate-700 hover:text-slate-500' : ''}`}
-                                  >
-                                    {word.text}
-                                  </motion.span>
-                                );
-                              })}
-                            </div>
-                            
-                            {/* Slider for quick sync - Only for current line */}
-                            {currentIndex.lineIndex === lIdx && isPlaying && (
-                              <div className="absolute -bottom-12 left-0 right-0 flex flex-col items-center gap-2 z-10">
-                                <div className="w-full max-w-md bg-slate-900/80 backdrop-blur-md p-3 rounded-2xl border border-slate-700 shadow-2xl flex items-center gap-4">
-                                  <Zap size={14} className="text-amber-500 animate-pulse" />
-                                  <input 
-                                    type="range"
-                                    min="0"
-                                    max={line.words.length}
-                                    value={currentIndex.wordIndex}
-                                    onChange={(e) => {
-                                      const val = parseInt(e.target.value);
-                                      if (val > currentIndex.wordIndex) {
-                                        syncToWordIndex(val);
-                                      }
-                                    }}
-                                    className="flex-1 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400 transition-all"
-                                  />
-                                </div>
-                                <p className="text-[10px] font-bold text-indigo-400/60 uppercase tracking-widest">Kéo để đồng bộ nhanh</p>
-                              </div>
-                            )}
-
-                            <button onClick={() => startEditing(lIdx, line.text)} className="opacity-0 group-hover:opacity-100 p-2 text-slate-600 hover:text-indigo-400 transition-all">
-                              <Edit3 size={18} />
-                            </button>
-                          </div>
-                          )}
-                        </div>
+                        <SyncLine
+                          key={lIdx}
+                          line={line}
+                          lIdx={lIdx}
+                          showSection={showSection}
+                          isCurrentLine={isCurrentLine}
+                          currentIndex={currentIndex}
+                          editingLineIdx={editingLineIdx}
+                          editValue={editValue}
+                          isPlaying={isPlaying}
+                          setEditValue={setEditValue}
+                          saveEdit={saveEdit}
+                          startEditing={startEditing}
+                          handleResetToLine={handleResetToLine}
+                          handleSeek={handleSeek}
+                          syncToWordIndex={syncToWordIndex}
+                        />
                       );
                     }) : (
                       <div className="text-center py-20 space-y-4">
