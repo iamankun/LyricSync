@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Saira+Stencil+One&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Saira Stencil One", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Saira Stencil One", ui-serif, Georgia, serif;
+  --font-mono: "Saira Stencil One", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 12px;
+    background: #6366f1;
+    border-radius: 9999px;
+    cursor: pointer;
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.8);
+    border: 2px solid white;
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 24px;
+    height: 12px;
+    background: #6366f1;
+    border-radius: 9999px;
+    cursor: pointer;
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.8);
+    border: 2px solid white;
+  }
+}
